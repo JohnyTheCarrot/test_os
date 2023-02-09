@@ -1,0 +1,16 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+x86_64 = "0.14.10"
+bootloader_api = "0.11.0"
+log = "0.4.17"
+noto-sans-mono-bitmap = "0.2.0"
+conquer-once = {version = "0.3.2", default-features = false}
+spinning_top = "0.2.4"
+pci_types = "0.2.0"
+acpi = "4.1.1"
