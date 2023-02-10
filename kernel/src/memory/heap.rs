@@ -8,7 +8,7 @@ use x86_64::VirtAddr;
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 pub const HEAP_START: *mut u8 = 0x_4444_4444_0000 as *mut u8;
-pub const HEAP_SIZE: usize = 200 * 1024;
+pub const HEAP_SIZE: usize = 9000 * 1024;
 
 fn map_heap<M, A>(mut mapper: M, frame_allocator: &mut A) -> Result<(), MapToError<Size4KiB>>
 where
@@ -45,6 +45,11 @@ where
 {
     map_heap(mapper, frame_allocator).expect("Couldn't map heap pages");
 
+    debug!(
+        "Initializing heap at {:?} of {} bytes",
+        HEAP_START, HEAP_SIZE
+    );
     unsafe { ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE) }
+
     debug!("Heap initialized");
 }

@@ -1,4 +1,5 @@
 use crate::color::Color;
+use alloc::vec::Vec;
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 
 pub struct FrameBufferWrapper<'a> {
@@ -7,41 +8,100 @@ pub struct FrameBufferWrapper<'a> {
 }
 
 impl FrameBufferWrapper<'_> {
-    pub fn write_format_agnostic_pixel(&mut self, x: usize, y: usize, value: u8) {
-        let location = (y * self.info.stride + x) * self.info.bytes_per_pixel;
-
-        self.buffer[location] = value;
-        self.buffer[location + 1] = value;
-        self.buffer[location + 2] = value;
+    #[inline]
+    pub fn write_pixel_as_bgr(&mut self, location: usize, color: Color) {
+        self.buffer[location] = color.b;
+        self.buffer[location + 1] = color.g;
+        self.buffer[location + 2] = color.r;
     }
 
-    pub fn write_pixel(&mut self, x: usize, y: usize, color: Color) {
-        let location = (y * self.info.stride + x) * self.info.bytes_per_pixel;
-        if self.info.pixel_format != PixelFormat::Rgb {
-            panic!(
-                "pixel format {:?} not supported in framebuffer",
-                self.info.pixel_format
-            );
-        }
-
+    #[inline]
+    pub fn write_pixel_as_rgb(&mut self, location: usize, color: Color) {
         self.buffer[location] = color.r;
         self.buffer[location + 1] = color.g;
         self.buffer[location + 2] = color.b;
     }
 
-    pub fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize, value: u8) {
-        for current_y in y..height {
-            for current_x in x..width {
-                let location =
-                    (current_y * self.info.stride + current_x) * self.info.bytes_per_pixel;
-                self.buffer[location] = value;
-                self.buffer[location + 1] = value;
-                self.buffer[location + 2] = value;
+    pub fn write_pixel(&mut self, x: usize, y: usize, color: Color) {
+        let location = (y * self.info.stride + x) * self.info.bytes_per_pixel;
+
+        if self.info.pixel_format == PixelFormat::Rgb {
+            self.write_pixel_as_rgb(location, color);
+        } else if self.info.pixel_format == PixelFormat::Bgr {
+            self.write_pixel_as_bgr(location, color);
+        }
+    }
+
+    pub fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: Color) {
+        let mut location = (y * self.info.stride + x) * self.info.bytes_per_pixel;
+        let bytes_until_next_line = (self.info.stride - width) * self.info.bytes_per_pixel;
+
+        if self.info.pixel_format == PixelFormat::Bgr {
+            for _ in 0..height {
+                for _ in 0..width {
+                    self.buffer[location] = color.b;
+                    self.buffer[location + 1] = color.g;
+                    self.buffer[location + 2] = color.r;
+
+                    location += self.info.bytes_per_pixel;
+                }
+
+                location += bytes_until_next_line;
+            }
+        }
+
+        if self.info.pixel_format == PixelFormat::Rgb {
+            for _ in 0..height {
+                for _ in 0..width {
+                    self.buffer[location] = color.r;
+                    self.buffer[location + 1] = color.g;
+                    self.buffer[location + 2] = color.b;
+
+                    location += self.info.bytes_per_pixel;
+                }
+
+                location += bytes_until_next_line;
             }
         }
     }
 
-    pub fn fill_screen(&mut self, value: u8) {
-        self.fill_rect(0, 0, self.info.width, self.info.height, value);
+    pub fn fill_screen(&mut self, color: Color) {
+        self.fill_rect(0, 0, self.info.width, self.info.height, color);
+    }
+
+    pub fn draw_bitmap_rgba(&mut self, x: usize, y: usize, width: usize, bitmap: &Vec<u8>) {
+        let initial_loc = (y * self.info.stride + x) * self.info.bytes_per_pixel;
+        let mut location = initial_loc;
+        let bytes_until_next_line = (self.info.stride - width) * self.info.bytes_per_pixel;
+
+        let mut x_relative_to_zero = 0usize;
+
+        if self.info.pixel_format == PixelFormat::Bgr {
+            for rgba in bitmap.chunks(4) {
+                if rgba[3] != 0 {
+                    let color = Color {
+                        r: rgba[0],
+                        g: rgba[1],
+                        b: rgba[2],
+                    };
+
+                    self.buffer[location] = color.b;
+                    self.buffer[location + 1] = color.g;
+                    self.buffer[location + 2] = color.r;
+                }
+
+                location += self.info.bytes_per_pixel;
+                x_relative_to_zero += 1;
+
+                if x_relative_to_zero % width == 0 {
+                    location += bytes_until_next_line;
+                    x_relative_to_zero = 0;
+                }
+
+                if location >= self.info.byte_len {
+                    return;
+                }
+            }
+        }
     }
 }

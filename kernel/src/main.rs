@@ -1,6 +1,7 @@
 #![feature(int_roundings)]
 #![feature(abi_x86_interrupt)]
 #![feature(panic_info_message)]
+#![feature(iter_next_chunk)]
 #![no_std]
 #![no_main]
 
@@ -16,24 +17,27 @@ mod screen;
 mod text_writer;
 
 use crate::acpi::AcpiMapper;
+use crate::color::Color;
 use crate::framebuffer::FrameBufferWrapper;
 use crate::logger::Logger;
 use crate::memory::frame_allocator::BootInfoFrameAllocator;
 use crate::memory::heap;
 use crate::screen::Screen;
 use ::acpi::{AcpiTables, InterruptModel};
+use alloc::boxed::Box;
+use alloc::format;
 use bootloader_api::config::Mapping;
 use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo, BootloaderConfig};
 use conquer_once::spin::OnceCell;
-use core::fmt::{Debug, Write};
+use core::fmt::Write;
 use core::panic::PanicInfo;
 use lazy_static::lazy_static;
-use log::debug;
+use log::{debug, info};
 use spinning_top::Spinlock;
 use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::{
-    Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size2MiB, Size4KiB,
+    Mapper, OffsetPageTable, PageTable, PageTableFlags, PhysFrame, Size4KiB,
 };
 use x86_64::{PhysAddr, VirtAddr};
 
@@ -89,6 +93,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             .expect("no physical memory offset found")
     });
 
+    let mut screen: Option<&Spinlock<Screen>> = None;
+
     if let Optional::Some(framebuffer) = &mut boot_info.framebuffer {
         let info = framebuffer.info();
         let wrapper = FrameBufferWrapper {
@@ -96,7 +102,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             info,
         };
 
-        SCREEN.get_or_init(|| Spinlock::new(Screen::new(wrapper)));
+        screen = Some(SCREEN.get_or_init(|| Spinlock::new(Screen::new(wrapper))));
         Logger::init();
     }
 
@@ -150,7 +156,45 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         debug!("Found APIC {:?}", apic);
         apic::init(apic);
 
-        debug!("\nStartup done!\n");
+        debug!("Startup done!\n");
+        info!("Loading friends...");
+
+        let test_image_1 = include_bytes!("assets/test_image.png");
+        let test_image_2 = include_bytes!("assets/test_image3.png");
+        let test_image_3 = include_bytes!("assets/test_image4.png");
+
+        screen.map(|locked_screen| {
+            let mut screen = locked_screen.lock();
+
+            screen.use_frame_buffer(|fb| {
+                let (header, image_data) = png_decoder::decode(test_image_2).unwrap();
+
+                fb.fill_screen(Color {
+                    r: 79,
+                    g: 96,
+                    b: 196,
+                });
+                fb.draw_bitmap_rgba(000, 0, header.width as usize, &image_data);
+
+                let (header, image_data) = png_decoder::decode(test_image_3).unwrap();
+
+                fb.draw_bitmap_rgba(
+                    fb.info.width - header.width as usize - 50,
+                    (fb.info.height - header.height as usize) / 3,
+                    header.width as usize,
+                    &image_data,
+                );
+
+                let (header, image_data) = png_decoder::decode(test_image_1).unwrap();
+
+                fb.draw_bitmap_rgba(
+                    (fb.info.width - header.width as usize) / 2,
+                    (fb.info.height - header.height as usize) / 2,
+                    header.width as usize,
+                    &image_data,
+                );
+            });
+        });
     } else {
         panic!("No physical memory offset");
     }

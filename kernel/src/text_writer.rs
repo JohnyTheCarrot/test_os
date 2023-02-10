@@ -1,3 +1,4 @@
+use crate::color::Color;
 use crate::framebuffer::FrameBufferWrapper;
 use crate::text_writer::font_constants::BACKUP_CHAR;
 use core::cmp::max;
@@ -100,10 +101,14 @@ impl FrameBufferTextWriter {
                     continue;
                 }
 
-                frame_buffer_wrapper.write_format_agnostic_pixel(
+                frame_buffer_wrapper.write_pixel(
                     self.render_x + x,
                     self.render_y + y,
-                    *byte,
+                    Color {
+                        r: *byte,
+                        g: *byte,
+                        b: *byte,
+                    },
                 );
             }
         }
