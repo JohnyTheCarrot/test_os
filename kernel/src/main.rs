@@ -9,7 +9,6 @@ extern crate alloc;
 mod acpi;
 mod apic;
 mod color;
-mod frame_allocator;
 mod framebuffer;
 mod logger;
 mod memory;
@@ -17,12 +16,11 @@ mod screen;
 mod text_writer;
 
 use crate::acpi::AcpiMapper;
-use crate::frame_allocator::BootInfoFrameAllocator;
 use crate::framebuffer::FrameBufferWrapper;
 use crate::logger::Logger;
+use crate::memory::frame_allocator::BootInfoFrameAllocator;
+use crate::memory::heap;
 use crate::screen::Screen;
-use ::acpi::madt::Madt;
-use ::acpi::sdt::Signature;
 use ::acpi::{AcpiTables, InterruptModel};
 use bootloader_api::config::Mapping;
 use bootloader_api::info::Optional;
@@ -31,7 +29,7 @@ use conquer_once::spin::OnceCell;
 use core::fmt::{Debug, Write};
 use core::panic::PanicInfo;
 use lazy_static::lazy_static;
-use log::{debug, error};
+use log::debug;
 use spinning_top::Spinlock;
 use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::{
@@ -71,7 +69,7 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 pub static PHYSICAL_MEMORY_OFFSET: OnceCell<u64> = OnceCell::uninit();
-pub static PAGE_TABLE: OnceCell<Spinlock<OffsetPageTable>> = OnceCell::uninit();
+// pub static PAGE_TABLE: OnceCell<Spinlock<OffsetPageTable>> = OnceCell::uninit();
 
 unsafe fn find_page_table() -> &'static mut PageTable {
     let (level_4_table_frame, _) = Cr3::read();
@@ -102,7 +100,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         Logger::init();
     }
 
-    let offset_table = unsafe {
+    let mut offset_table = unsafe {
         OffsetPageTable::new(
             find_page_table(),
             VirtAddr::new(*PHYSICAL_MEMORY_OFFSET.get().unwrap()),
@@ -111,37 +109,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_regions) };
 
-    let mut page_table = PAGE_TABLE.get_or_init(move || Spinlock::new(offset_table));
-
-    let frame_start = PhysFrame::containing_address(PhysAddr::new(
-        boot_info.physical_memory_offset.into_option().unwrap(),
-    ));
-    let frame_end = PhysFrame::containing_address(PhysAddr::new(
-        boot_info.physical_memory_offset.into_option().unwrap() + 2u64.pow(19),
-    ));
-    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(0));
-
-    for (i, frame) in PhysFrame::range_inclusive(frame_start, frame_end).enumerate() {
-        let page = page + i as u64;
-
-        unsafe {
-            let _ = page_table
-                .lock()
-                .map_to(
-                    page,
-                    frame,
-                    PageTableFlags::WRITABLE | PageTableFlags::PRESENT,
-                    &mut frame_allocator,
-                )
-                .map(|f| f.flush());
-        }
-    }
-
     let apic_frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(0xFEE00000));
 
     unsafe {
-        page_table
-            .lock()
+        offset_table
             .identity_map(
                 apic_frame,
                 PageTableFlags::WRITABLE | PageTableFlags::PRESENT,
@@ -150,6 +121,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             .map(|f| f.flush())
             .unwrap();
     }
+
+    heap::init_heap(offset_table, &mut frame_allocator);
 
     if let Some(offset) = PHYSICAL_MEMORY_OFFSET.get() {
         let handler = AcpiMapper {

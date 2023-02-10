@@ -3,7 +3,7 @@ use acpi::platform::interrupt::Apic;
 use conquer_once::spin::OnceCell;
 use log::{debug, warn};
 use x86_64::instructions::port::Port;
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
 fn irq_fallback(_stack_frame: InterruptStackFrame, index: u8, _code: Option<u64>) {
     warn!("Unhandled IRQ {}", index);
