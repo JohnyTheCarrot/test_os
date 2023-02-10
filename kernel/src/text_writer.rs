@@ -1,12 +1,7 @@
 use crate::framebuffer::FrameBufferWrapper;
-use crate::logging::font_constants::BACKUP_CHAR;
-use conquer_once::spin::OnceCell;
+use crate::text_writer::font_constants::BACKUP_CHAR;
 use core::cmp::max;
-use core::fmt;
-use core::fmt::Write;
-use log::{Metadata, Record};
 use noto_sans_mono_bitmap::{get_raster, RasterizedChar};
-use spinning_top::Spinlock;
 
 mod font_constants {
     use noto_sans_mono_bitmap::{get_raster_width, FontWeight, RasterHeight};
@@ -43,7 +38,6 @@ const LINE_HEIGHT: usize = font_constants::CHAR_RASTER_HEIGHT.val() + LINE_SPACI
 
 pub struct FrameBufferTextWriter {
     text_buffer: [char; CHAR_BUFFER_LENGTH],
-    frame_buffer_wrapper: FrameBufferWrapper<'static>,
     window_scroll: i32,
     cursor_x: usize,
     cursor_y: usize,
@@ -52,10 +46,9 @@ pub struct FrameBufferTextWriter {
 }
 
 impl FrameBufferTextWriter {
-    pub fn new(frame_buffer_wrapper: FrameBufferWrapper<'static>) -> Self {
+    pub fn new() -> Self {
         Self {
-            text_buffer: ['/'; CHAR_BUFFER_LENGTH],
-            frame_buffer_wrapper,
+            text_buffer: [' '; CHAR_BUFFER_LENGTH],
             window_scroll: 0,
             cursor_x: 0,
             cursor_y: 0,
@@ -70,20 +63,20 @@ impl FrameBufferTextWriter {
         self.carriage_return();
     }
 
-    fn full_render(&mut self) {
-        self.clear();
+    fn full_render(&mut self, mut frame_buffer_wrapper: &mut FrameBufferWrapper) {
+        self.clear(frame_buffer_wrapper);
 
         for char_index in max(-self.window_scroll * COLUMNS as i32, 0) as usize..CHAR_BUFFER_LENGTH
         {
             let c = self.text_buffer[char_index];
-            self.render_char(c);
+            self.render_char(c, &mut frame_buffer_wrapper);
         }
     }
 
-    fn scroll(&mut self, diff: i32) {
+    fn scroll(&mut self, diff: i32, frame_buffer_wrapper: &mut FrameBufferWrapper) {
         self.window_scroll += diff;
 
-        self.full_render();
+        self.full_render(frame_buffer_wrapper);
     }
 
     fn carriage_return(&mut self) {
@@ -91,19 +84,23 @@ impl FrameBufferTextWriter {
         self.cursor_x = 0;
     }
 
-    pub fn clear(&mut self) {
-        self.frame_buffer_wrapper.buffer.fill(0);
+    pub fn clear(&mut self, frame_buffer_wrapper: &mut FrameBufferWrapper) {
+        frame_buffer_wrapper.buffer.fill(0);
         self.render_x = BORDER_PADDING;
         self.render_y = BORDER_PADDING;
     }
 
-    fn render_char(&mut self, c: char) {
+    fn render_char(&mut self, c: char, frame_buffer_wrapper: &mut FrameBufferWrapper) {
         let raster = get_char_raster(c);
 
         // todo: optimize
         for (y, row) in raster.raster().iter().enumerate() {
             for (x, byte) in row.iter().enumerate() {
-                self.frame_buffer_wrapper.write_format_agnostic_pixel(
+                if byte == &0 {
+                    continue;
+                }
+
+                frame_buffer_wrapper.write_format_agnostic_pixel(
                     self.render_x + x,
                     self.render_y + y,
                     *byte,
@@ -113,77 +110,30 @@ impl FrameBufferTextWriter {
         self.render_x += raster.width() + LETTER_SPACING;
     }
 
-    pub fn write_char(&mut self, c: char) {
+    pub fn write_char(&mut self, c: char, frame_buffer_wrapper: &mut FrameBufferWrapper) {
         match c {
             '\n' => self.newline(),
             '\r' => self.carriage_return(),
             c => {
                 let new_x = self.render_x + font_constants::CHAR_RASTER_WIDTH;
 
-                if new_x >= self.frame_buffer_wrapper.info.width {
+                if new_x >= frame_buffer_wrapper.info.width - BORDER_PADDING {
                     self.newline()
                 }
 
-                if self.render_y >= self.frame_buffer_wrapper.info.height - BORDER_PADDING {
+                if self.render_y >= frame_buffer_wrapper.info.height - BORDER_PADDING {
                     // self.scroll(-1);
-                    self.clear();
+                    self.clear(frame_buffer_wrapper);
                 }
 
-                self.render_char(c);
+                self.render_char(c, frame_buffer_wrapper);
             }
         }
     }
-}
 
-impl Write for FrameBufferTextWriter {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        for c in s.chars() {
-            self.write_char(c);
+    pub fn write_str(&mut self, text: &str, frame_buffer_wrapper: &mut FrameBufferWrapper) {
+        for c in text.chars() {
+            self.write_char(c, frame_buffer_wrapper);
         }
-
-        Ok(())
     }
-}
-
-pub struct Logger {
-    framebuffer_writer: Spinlock<FrameBufferTextWriter>,
-}
-
-impl Logger {
-    fn new(framebuffer_writer: FrameBufferTextWriter) -> Self {
-        let framebuffer_writer = Spinlock::new(framebuffer_writer);
-
-        Self { framebuffer_writer }
-    }
-
-    pub fn force_unlock(&self) {
-        unsafe { self.framebuffer_writer.force_unlock() }
-    }
-}
-
-impl log::Log for Logger {
-    fn enabled(&self, _: &Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &Record) {
-        let mut writer = self.framebuffer_writer.lock();
-
-        writeln!(writer, "{:5}: {}", record.level(), record.args()).unwrap()
-    }
-
-    fn flush(&self) {}
-}
-
-pub static LOGGER: OnceCell<Logger> = OnceCell::uninit();
-
-pub fn init_logger(framebuffer_writer: FrameBufferWrapper<'static>) {
-    let mut writer = FrameBufferTextWriter::new(framebuffer_writer);
-    writer.clear();
-
-    let logger = LOGGER.get_or_init(move || Logger::new(writer));
-
-    log::set_logger(logger).expect("logger already initialized");
-    log::set_max_level(log::LevelFilter::Trace);
-    log::info!("Logger enabled!");
 }

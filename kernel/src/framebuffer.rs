@@ -28,4 +28,20 @@ impl FrameBufferWrapper<'_> {
         self.buffer[location + 1] = color.g;
         self.buffer[location + 2] = color.b;
     }
+
+    pub fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize, value: u8) {
+        for current_y in y..height {
+            for current_x in x..width {
+                let location =
+                    (current_y * self.info.stride + current_x) * self.info.bytes_per_pixel;
+                self.buffer[location] = value;
+                self.buffer[location + 1] = value;
+                self.buffer[location + 2] = value;
+            }
+        }
+    }
+
+    pub fn fill_screen(&mut self, value: u8) {
+        self.fill_rect(0, 0, self.info.width, self.info.height, value);
+    }
 }

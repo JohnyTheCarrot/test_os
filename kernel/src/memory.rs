@@ -1,10 +1,12 @@
 use crate::memory::MemoryBlockRegionType::{Free, Used};
-use crate::PHYSICAL_MEMORY_OFFSET;
+use crate::{PAGE_TABLE, PHYSICAL_MEMORY_OFFSET};
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::UnsafeCell;
 use core::ptr::null_mut;
 use core::sync::atomic::AtomicUsize;
 use log::{debug, warn};
+use x86_64::structures::paging::Translate;
+use x86_64::VirtAddr;
 
 const ORDER_0_BLOCK_AMOUNT: usize = 512;
 const ORDER_0_BLOCK_SIZE: usize = 1024;
@@ -55,7 +57,7 @@ impl Allocator {
             return None;
         }
 
-        let mut node = *node_ptr;
+        let node = *node_ptr;
 
         if node.order == desired_order && node.region_type == Free {
             log::trace!("Found block of desired order at {:?}", node.start_ptr);
@@ -81,7 +83,7 @@ impl Allocator {
 
             // debug!("first {:?}", left_node_opt_ptr);
 
-            while let Some(mem) = *left_node_opt_ptr {
+            while let Some(_) = *left_node_opt_ptr {
                 // debug!("checked {:?}", mem);
                 left_node_opt_ptr = left_node_opt_ptr.add(1);
                 // debug!("moving to {:?}", left_node_opt_ptr);
@@ -150,20 +152,19 @@ unsafe impl GlobalAlloc for Allocator {
         let order = number_requested_blocks.ilog2() as usize;
 
         if order > MAX_BLOCK_ORDER {
-            log::warn!(
+            warn!(
                 "Requested allocation order exceeded MAX_BLOCK_ORDER ({} > {})",
-                order,
-                MAX_BLOCK_ORDER
+                order, MAX_BLOCK_ORDER
             );
             return null_mut();
         }
 
-        let mut root = match (*self.region.get()).first().unwrap() {
+        let root = match (*self.region.get()).first().unwrap() {
             Some(mut root) => &mut root as *mut MemoryBlockRegion,
             None => {
                 let region = MemoryBlockRegion {
                     region_type: Free,
-                    start_ptr: 2usize.pow(MAX_BLOCK_ORDER as u32) as *mut u8,
+                    start_ptr: 0 as *mut u8,
                     order: MAX_BLOCK_ORDER,
                     left: null_mut(),
                     right: null_mut(),
@@ -179,9 +180,12 @@ unsafe impl GlobalAlloc for Allocator {
         let block_region = self.find_block_region(root, order);
         debug!("{:?}", block_region);
         if let Some(block_region) = block_region {
-            block_region
-                .start_ptr
-                .add(*PHYSICAL_MEMORY_OFFSET.get().unwrap() as usize)
+            let addr = (*PHYSICAL_MEMORY_OFFSET.get().unwrap() as u64
+                + block_region.start_ptr as u64) as *mut u8;
+
+            debug!("addr {:?}", addr);
+
+            addr
         } else {
             debug!("allocation returned null");
             null_mut()
