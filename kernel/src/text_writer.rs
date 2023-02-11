@@ -31,14 +31,9 @@ fn get_char_raster(c: char) -> RasterizedChar {
 const LINE_SPACING: usize = 8;
 const BORDER_PADDING: usize = 8;
 const LETTER_SPACING: usize = 0;
-const ROWS: usize = 24;
-const COLUMNS: usize = 24;
-const TERMINAL_PAGES: usize = 1;
-const CHAR_BUFFER_LENGTH: usize = ROWS * COLUMNS * TERMINAL_PAGES;
 const LINE_HEIGHT: usize = font_constants::CHAR_RASTER_HEIGHT.val() + LINE_SPACING;
 
 pub struct FrameBufferTextWriter {
-    text_buffer: [char; CHAR_BUFFER_LENGTH],
     window_scroll: i32,
     cursor_x: usize,
     cursor_y: usize,
@@ -49,7 +44,6 @@ pub struct FrameBufferTextWriter {
 impl FrameBufferTextWriter {
     pub fn new() -> Self {
         Self {
-            text_buffer: [' '; CHAR_BUFFER_LENGTH],
             window_scroll: 0,
             cursor_x: 0,
             cursor_y: 0,
@@ -64,20 +58,14 @@ impl FrameBufferTextWriter {
         self.carriage_return();
     }
 
-    fn full_render(&mut self, mut frame_buffer_wrapper: &mut FrameBufferWrapper) {
-        self.clear(frame_buffer_wrapper);
+    fn scroll_up(&mut self, diff: usize, frame_buffer_wrapper: &mut FrameBufferWrapper) {
+        let byte_diff = diff
+            * LINE_HEIGHT
+            * frame_buffer_wrapper.info.stride
+            * frame_buffer_wrapper.info.bytes_per_pixel;
 
-        for char_index in max(-self.window_scroll * COLUMNS as i32, 0) as usize..CHAR_BUFFER_LENGTH
-        {
-            let c = self.text_buffer[char_index];
-            self.render_char(c, &mut frame_buffer_wrapper);
-        }
-    }
-
-    fn scroll(&mut self, diff: i32, frame_buffer_wrapper: &mut FrameBufferWrapper) {
-        self.window_scroll += diff;
-
-        self.full_render(frame_buffer_wrapper);
+        frame_buffer_wrapper.buffer.copy_within(byte_diff.., 0);
+        frame_buffer_wrapper.buffer[frame_buffer_wrapper.info.byte_len - byte_diff..].fill(0);
     }
 
     fn carriage_return(&mut self) {
@@ -127,8 +115,9 @@ impl FrameBufferTextWriter {
                 }
 
                 if self.render_y >= frame_buffer_wrapper.info.height - BORDER_PADDING {
-                    // self.scroll(-1);
-                    self.clear(frame_buffer_wrapper);
+                    self.render_y -= LINE_HEIGHT;
+                    self.scroll_up(1, frame_buffer_wrapper);
+                    // self.clear(frame_buffer_wrapper);
                 }
 
                 self.render_char(c, frame_buffer_wrapper);
