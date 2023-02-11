@@ -1,5 +1,6 @@
 use crate::PHYSICAL_MEMORY_OFFSET;
 use acpi::platform::interrupt::Apic;
+use alloc::alloc::Global;
 use conquer_once::spin::OnceCell;
 use log::{debug, warn};
 use x86_64::instructions::port::Port;
@@ -18,7 +19,7 @@ fn irq_page_fault(stack_frame: InterruptStackFrame, _index: u8, code: Option<u64
 
 static IDT: OnceCell<InterruptDescriptorTable> = OnceCell::uninit();
 
-pub fn init(apic: Apic) {
+pub fn init(apic: Apic<Global>) {
     let base_addr = *PHYSICAL_MEMORY_OFFSET.get().unwrap() as usize;
 
     if apic.also_has_legacy_pics {

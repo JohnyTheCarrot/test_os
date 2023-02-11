@@ -16,6 +16,9 @@ fn main() {
             .arg(format!("format=raw,file={bios_path}"));
     }
 
+    cmd.arg("-machine").arg("q35");
+    cmd.arg("-usb");
+
     let mut child = cmd.spawn().unwrap();
     child.wait().unwrap();
 }

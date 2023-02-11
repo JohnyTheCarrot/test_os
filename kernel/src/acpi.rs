@@ -22,11 +22,11 @@ impl AcpiHandler for AcpiMapper {
             self.clone(),
         );
 
-        debug!(
-            "mapping physical address {:?} to virtual address {:?}",
-            physical_address,
-            mapping.virtual_start()
-        );
+        // debug!(
+        //     "mapping physical address {:?} to virtual address {:?}",
+        //     physical_address,
+        //     mapping.virtual_start()
+        // );
 
         mapping
     }
