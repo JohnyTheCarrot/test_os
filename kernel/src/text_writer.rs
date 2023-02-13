@@ -33,7 +33,6 @@ const LETTER_SPACING: usize = 0;
 const LINE_HEIGHT: usize = font_constants::CHAR_RASTER_HEIGHT.val() + LINE_SPACING;
 
 pub struct FrameBufferTextWriter {
-    window_scroll: i32,
     cursor_x: usize,
     cursor_y: usize,
     render_x: usize,
@@ -43,7 +42,6 @@ pub struct FrameBufferTextWriter {
 impl FrameBufferTextWriter {
     pub fn new() -> Self {
         Self {
-            window_scroll: 0,
             cursor_x: 0,
             cursor_y: 0,
             render_x: BORDER_PADDING,

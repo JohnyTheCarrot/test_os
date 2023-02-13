@@ -38,7 +38,7 @@ where
     Ok(())
 }
 
-pub fn init_heap<M, A>(mut mapper: M, frame_allocator: &mut A)
+pub fn init_heap<M, A>(mapper: M, frame_allocator: &mut A)
 where
     M: Mapper<Size4KiB>,
     A: FrameAllocator<Size4KiB> + ?Sized,

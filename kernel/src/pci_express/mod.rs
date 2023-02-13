@@ -1,3 +1,4 @@
+use crate::memory::map_physical_to_virtual;
 use crate::pci_express::device::PciDevice;
 use acpi::mcfg::PciConfigEntry;
 use acpi::{AcpiHandler, AcpiTables, PciConfigRegions};
@@ -7,6 +8,7 @@ use alloc::vec::Vec;
 use log::debug;
 
 mod device;
+mod device_capabilities;
 mod registers;
 
 pub struct PCIe {
@@ -16,6 +18,45 @@ pub struct PCIe {
 impl PCIe {
     pub fn new() -> Self {
         Self { devices: None }
+    }
+
+    fn check_device(
+        &mut self,
+        devices: &mut Vec<PciDevice>,
+        config_regions: &PciConfigRegions<Global>,
+        segment_group_number: u16,
+        bus: u8,
+        device: u8,
+        function: u8,
+        check_if_multiple_functions: bool,
+    ) {
+        let address =
+            match config_regions.physical_address(segment_group_number, bus, device, function) {
+                Some(address) => map_physical_to_virtual(address),
+                None => {
+                    debug!("No entry in MCFG that manages device.");
+                    return;
+                }
+            };
+
+        let pci_device = PciDevice::new(address);
+
+        if !pci_device.exists() {
+            return;
+        }
+
+        debug!("Found device {:?}.", pci_device);
+
+        if check_if_multiple_functions && pci_device.has_multiple_functions() {
+            debug!("Device has multiple functions:");
+            let mut other_functions =
+                self.scan_device_for_functions(config_regions, segment_group_number, bus, device);
+
+            devices.append(&mut other_functions);
+            debug!("End of device's other functions.")
+        }
+
+        devices.push(pci_device);
     }
 
     fn scan_device_for_functions(
@@ -28,32 +69,15 @@ impl PCIe {
         let mut devices = vec![];
 
         for function in 1..8u8 {
-            let address = match config_regions.physical_address(
+            self.check_device(
+                &mut devices,
+                config_regions,
                 segment_group_number,
                 bus,
                 device,
                 function,
-            ) {
-                Some(address) => address,
-                None => {
-                    debug!("No entry in MCFG that manages device.");
-                    continue;
-                }
-            };
-
-            let device = PciDevice::new(address);
-
-            if !device.exists() {
-                continue;
-            }
-
-            debug!(
-                "Found device ({:04x}:{:04x}).",
-                device.vendor_id(),
-                device.device_id()
+                false,
             );
-
-            devices.push(device);
         }
 
         devices
@@ -73,44 +97,19 @@ impl PCIe {
 
         for bus in entry.bus_range {
             for device in 0..31u8 {
-                let address =
-                    match config_regions.physical_address(entry.segment_group, bus, device, 0) {
-                        Some(address) => address,
-                        None => {
-                            debug!("No entry in MCFG that manages device.");
-                            continue;
-                        }
-                    };
-
-                let pci_device = PciDevice::new(address);
-
-                if !pci_device.exists() {
-                    continue;
-                }
-
-                debug!(
-                    "Found device ({:04x}:{:04x}).",
-                    pci_device.vendor_id(),
-                    pci_device.device_id()
+                self.check_device(
+                    &mut devices,
+                    config_regions,
+                    entry.segment_group,
+                    bus,
+                    device,
+                    0,
+                    true,
                 );
-
-                if pci_device.has_multiple_functions() {
-                    debug!("Device has multiple functions:");
-                    let mut other_functions = self.scan_device_for_functions(
-                        config_regions,
-                        entry.segment_group,
-                        bus,
-                        device,
-                    );
-
-                    devices.append(&mut other_functions);
-                    debug!("End of device's other functions.")
-                }
-
-                devices.push(pci_device);
             }
         }
 
+        debug!("Done scanning config entry");
         devices
     }
 
@@ -133,5 +132,11 @@ impl PCIe {
         }
 
         self.devices = Some(devices);
+        debug!("Done scanning for devices.");
+    }
+
+    #[allow(unused)]
+    pub fn devices(self) -> Option<Vec<PciDevice>> {
+        self.devices
     }
 }

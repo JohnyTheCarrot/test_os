@@ -1,4 +1,3 @@
-use crate::PHYSICAL_MEMORY_OFFSET;
 use acpi::platform::interrupt::Apic;
 use alloc::alloc::Global;
 use conquer_once::spin::OnceCell;
@@ -20,8 +19,6 @@ fn irq_page_fault(stack_frame: InterruptStackFrame, _index: u8, code: Option<u64
 static IDT: OnceCell<InterruptDescriptorTable> = OnceCell::uninit();
 
 pub fn init(apic: Apic<Global>) {
-    let base_addr = *PHYSICAL_MEMORY_OFFSET.get().unwrap() as usize;
-
     if apic.also_has_legacy_pics {
         debug!("Has legacy PIC, disabling..");
         // disable pic8259
@@ -48,10 +45,8 @@ pub fn init(apic: Apic<Global>) {
         let reg = (apic.local_apic_address + 0xf0) as *mut u32;
 
         debug!(
-            "Phys. local APIC address = {:?}, + {:08x} = virtaddr {:?}, writing 0x1FF",
-            apic.local_apic_address as *mut u32,
-            *PHYSICAL_MEMORY_OFFSET.get().unwrap() as usize,
-            reg
+            "Phys. local APIC address = {:?}, reg = {:?}, writing 0x1FF",
+            apic.local_apic_address as *mut u32, reg
         );
 
         reg.write_volatile(0x1FF);

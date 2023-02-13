@@ -3,6 +3,7 @@
 #![feature(panic_info_message)]
 #![feature(iter_next_chunk)]
 #![feature(allocator_api)]
+#![feature(pointer_byte_offsets)]
 #![no_std]
 #![no_main]
 
@@ -23,7 +24,7 @@ use crate::color::Color;
 use crate::framebuffer::FrameBufferWrapper;
 use crate::logger::Logger;
 use crate::memory::frame_allocator::BootInfoFrameAllocator;
-use crate::memory::heap;
+use crate::memory::{heap, map_physical_to_virtual_mut};
 use crate::screen::Screen;
 use ::acpi::{AcpiTables, InterruptModel};
 use alloc::alloc::Global;
@@ -82,7 +83,7 @@ fn after_boot() {
 
     let (friend_header, friend_image_data) = png_decoder::decode(test_image_1).unwrap();
 
-    let mut screen = SCREEN.get().unwrap().lock();
+    let screen = SCREEN.get().unwrap().lock();
 
     let line_height = 25usize;
 
@@ -144,7 +145,6 @@ fn after_boot() {
             }
         }
 
-        let mut flipped = false;
         let line_len = fb.info.stride * fb.info.bytes_per_pixel;
 
         loop {
@@ -159,8 +159,7 @@ unsafe fn find_page_table() -> &'static mut PageTable {
     let (level_4_table_frame, _) = Cr3::read();
 
     let phys = level_4_table_frame.start_address();
-    let virt = PHYSICAL_MEMORY_OFFSET.get().unwrap() + phys.as_u64();
-    let page_table_ptr: *mut PageTable = virt as *mut PageTable;
+    let page_table_ptr = map_physical_to_virtual_mut(phys.as_u64());
 
     &mut *page_table_ptr
 }
@@ -249,17 +248,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         } else {
             panic!("Unknown interrupt model");
         };
-
-        let io_apic = apic.io_apics.first().unwrap();
-        let addr = io_apic.address;
-
-        let version_and_max_redirections = unsafe {
-            (addr as *mut u32).write_volatile(0x01);
-            ((addr + 0x10) as *mut u32).read_volatile()
-        };
-
-        let version = version_and_max_redirections & 0xFF;
-        let max_redirections = (version_and_max_redirections >> 16) + 1;
 
         debug!("Found APIC {:?}", apic);
         apic::init(apic);
