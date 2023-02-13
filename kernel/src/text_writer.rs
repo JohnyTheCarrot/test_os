@@ -1,7 +1,6 @@
 use crate::color::Color;
 use crate::framebuffer::FrameBufferWrapper;
 use crate::text_writer::font_constants::BACKUP_CHAR;
-use core::cmp::max;
 use noto_sans_mono_bitmap::{get_raster, RasterizedChar};
 
 mod font_constants {
@@ -105,7 +104,13 @@ impl FrameBufferTextWriter {
 
     pub fn write_char(&mut self, c: char, frame_buffer_wrapper: &mut FrameBufferWrapper) {
         match c {
-            '\n' => self.newline(),
+            '\n' => {
+                self.newline();
+                if self.render_y >= frame_buffer_wrapper.info.height - BORDER_PADDING {
+                    self.render_y -= LINE_HEIGHT;
+                    self.scroll_up(1, frame_buffer_wrapper);
+                }
+            }
             '\r' => self.carriage_return(),
             c => {
                 let new_x = self.render_x + font_constants::CHAR_RASTER_WIDTH;

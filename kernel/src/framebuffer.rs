@@ -66,7 +66,15 @@ impl FrameBufferWrapper<'_> {
     }
 
     pub fn fill_screen(&mut self, color: Color) {
-        self.fill_rect(0, 0, self.info.width, self.info.height, color);
+        let color_slice = if self.info.pixel_format == PixelFormat::Bgr {
+            [color.b, color.g, color.r, 0]
+        } else {
+            [color.r, color.g, color.b, 0]
+        };
+
+        for s in self.buffer.chunks_exact_mut(self.info.bytes_per_pixel) {
+            s.copy_from_slice(&color_slice);
+        }
     }
 
     pub fn draw_bitmap_rgba(&mut self, x: usize, y: usize, width: usize, bitmap: &Vec<u8>) {

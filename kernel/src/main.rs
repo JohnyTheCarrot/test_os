@@ -19,23 +19,19 @@ mod screen;
 mod text_writer;
 
 use crate::acpi::AcpiMapper;
+use crate::color::Color;
 use crate::framebuffer::FrameBufferWrapper;
 use crate::logger::Logger;
 use crate::memory::frame_allocator::BootInfoFrameAllocator;
 use crate::memory::heap;
 use crate::screen::Screen;
-use ::acpi::mcfg::Mcfg;
-use ::acpi::sdt::Signature;
-use ::acpi::{AcpiError, AcpiTables, InterruptModel, PciConfigRegions};
+use ::acpi::{AcpiTables, InterruptModel};
 use alloc::alloc::Global;
-use alloc::boxed::Box;
-use alloc::format;
 use bootloader_api::config::Mapping;
 use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo, BootloaderConfig};
 use conquer_once::spin::OnceCell;
 use core::fmt::Write;
-use core::ops::Deref;
 use core::panic::PanicInfo;
 use lazy_static::lazy_static;
 use log::{debug, info};
@@ -67,9 +63,9 @@ fn panic(info: &PanicInfo) -> ! {
     info.message()
         .map(|message| writeln!(screen_inner, "\n\nKernel panic\n\n{}", message));
 
-    writeln!(screen_inner, "{:?}", info.location()).unwrap();
+    let _ = writeln!(screen_inner, "{:?}", info.location());
 
-    writeln!(screen_inner, "\n\nDisabling interrupts and halting CPU.").unwrap();
+    let _ = writeln!(screen_inner, "\n\nDisabling interrupts and halting CPU.");
 
     loop {
         x86_64::instructions::interrupts::disable();
@@ -181,32 +177,89 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         let version = version_and_max_redirections & 0xFF;
         let max_redirections = (version_and_max_redirections >> 16) + 1;
 
-        // debug!("Found APIC {:?}", apic);
+        debug!("Found APIC {:?}", apic);
         apic::init(apic);
 
         pcie::PCIe::new(&acpi);
 
-        info!("Startup done!\n");
+        info!("Startup done!");
         info!("Loading friend...");
 
         let test_image_1 = include_bytes!("assets/test_image.png");
 
-        screen.map(|locked_screen| {
-            let mut screen = locked_screen.lock();
+        let (friend_header, friend_image_data) = png_decoder::decode(test_image_1).unwrap();
 
-            screen.use_frame_buffer(|fb| {
-                let (header, image_data) = png_decoder::decode(test_image_1).unwrap();
+        let mut screen = screen.unwrap().lock();
 
-                fb.draw_bitmap_rgba(
-                    fb.info.width - header.width as usize - 50,
-                    fb.info.height - header.height as usize - 50,
-                    header.width as usize,
-                    &image_data,
-                );
-            });
+        let line_height = 25usize;
+
+        screen.use_frame_buffer(|fb| {
+            fb.fill_screen(Color { r: 0, g: 0, b: 0 });
+            fb.fill_rect(
+                0,
+                fb.info.height / 2 - line_height,
+                fb.info.width,
+                line_height,
+                Color {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                },
+            );
+            fb.fill_rect(
+                0,
+                fb.info.height / 2 + line_height,
+                fb.info.width,
+                line_height,
+                Color {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                },
+            );
+            fb.fill_rect(
+                0,
+                fb.info.height / 9,
+                fb.info.width,
+                line_height / 2,
+                Color {
+                    r: 252,
+                    g: 186,
+                    b: 3,
+                },
+            );
+            fb.fill_rect(
+                0,
+                fb.info.height - fb.info.height / 9,
+                fb.info.width,
+                line_height / 2,
+                Color {
+                    r: 252,
+                    g: 186,
+                    b: 3,
+                },
+            );
+
+            for x in (0..(fb.info.width - friend_header.width as usize))
+                .step_by(friend_header.width as usize)
+            {
+                for y in (friend_header.height as usize
+                    ..(fb.info.height - friend_header.height as usize * 2))
+                    .step_by(friend_header.height as usize)
+                {
+                    fb.draw_bitmap_rgba(x, y, friend_header.width as usize, &friend_image_data);
+                }
+            }
+
+            let mut flipped = false;
+            let line_len = fb.info.stride * fb.info.bytes_per_pixel;
+
+            loop {
+                for line in fb.buffer.chunks_exact_mut(line_len) {
+                    line.rotate_right(1 * (fb.info.bytes_per_pixel));
+                }
+            }
         });
-
-        info!("Friend time!");
     } else {
         panic!("No physical memory offset");
     }
