@@ -23,7 +23,7 @@ impl AcpiHandler for AcpiMapper {
         );
 
         debug!(
-            "mapping physical address {:?} to virtual address {:?}",
+            "mapping physical address 0x{:08x} to virtual address {:?}",
             physical_address,
             mapping.virtual_start()
         );

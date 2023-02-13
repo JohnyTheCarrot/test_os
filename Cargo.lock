@@ -326,6 +326,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
+ "bit_field",
  "bootloader_api",
  "conquer-once",
  "lazy_static",
