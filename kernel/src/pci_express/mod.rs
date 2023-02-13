@@ -27,7 +27,7 @@ impl PCIe {
     ) -> Vec<PciDevice> {
         let mut devices = vec![];
 
-        for function in 0..8u8 {
+        for function in 1..8u8 {
             let address = match config_regions.physical_address(
                 segment_group_number,
                 bus,
